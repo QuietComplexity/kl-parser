@@ -14,12 +14,11 @@ st.set_page_config(page_title="KL Generator", page_icon="🔗", layout="wide")
 
 # --- PRZYCISK RESETU ---
 if st.sidebar.button("🗑️ Wyczyść wszystko"):
-    st.cache_data.clear()
     st.rerun()
 
 st.title("🔗 Panel Edytorski KL Dzieciom")
 
-# --- SIDEBAR: USTAWIENIA (BEZ SZEROKOŚCI) ---
+# --- SIDEBAR: USTAWIENIA ---
 with st.sidebar:
     st.header("📂 Parametry WordPress")
     now = datetime.now()
@@ -27,19 +26,18 @@ with st.sidebar:
     month = st.text_input("Miesiąc (MM):", value=now.strftime("%m"))
     
     st.header("🖼️ Ustawienia Zdjęć")
-    # Nowa kolejność formatów
     file_ext = st.selectbox("Format plików:", [".jpg", ".jpeg", ".png"], index=0)
     author_code = st.text_input("Kod autora (np. rybak):", value="").lower().strip()
     
     st.divider()
-    st.info("Szerokość ustawiana automatycznie:\n- Poziome: 675px\n- Pion/Kwadrat: 550px")
+    st.info("Szerokość obrazków:\n- Poziome: 675px\n- Pion/Kwadrat: 550px")
 
 # --- GŁÓWNE OKNO ---
 col_in, col_out = st.columns(2)
 
 with col_in:
     st.subheader("1. Wklej tekst")
-    input_text = st.text_area("Wklej treść razem z metadanymi:", height=550, key="input_field")
+    input_text = st.text_area("Wklej treść razem z metadanymi:", height=550, key="main_input")
 
 if input_text:
     lines = input_text.splitlines()
@@ -54,7 +52,6 @@ if input_text:
             skip_next = False
             continue
         l_u = l.upper()
-        # Wykrywanie metadanych
         if ":" in l and any(k in l_u for k in ["SEO:", "TYTUŁ SEO:", "METAOPIS:", "TAGI:", "URL:", "SŁOWO KLUCZ:", "LEAD:", "AUTOR:"]):
             klucz, wartosc = l.split(":", 1)
             val = wartosc.strip()
@@ -75,51 +72,44 @@ if input_text:
     base_url = f"https://kulturaliberalna.pl/wp-content/uploads/{year}/{month}/"
 
     for l in content_lines:
-        l_low = l.lower().strip()
+        l_strip = l.strip()
+        l_low = l_strip.lower()
         
-        # Obrazki (Szerokość 675 lub 550)
-        if "[" in l and "]" in l:
-            tag_raw = re.search(r'\[(.*?)\]', l).group(1).lower()
+        # 1. OBRAZKI
+        if "[" in l_strip and "]" in l_strip:
+            tag_raw = re.search(r'\[(.*?)\]', l_strip).group(1).lower()
             width = 550 if any(k in tag_raw for k in ["pion", "v", "sq", "kwadrat"]) else 675
-            
             tag_clean = usun_polskie_znaki(tag_raw).replace(" ", "_")
             file_name = f"{author_code}_{tag_clean}{file_ext}"
-            full_img_url = base_url + file_name
-            
-            html_body.append(
-                f'<img class="alignnone wp-image-XXXX" src="{full_img_url}" '
-                f'alt="" width="{width}" height="auto" '
-                f'style="max-width: 100%; height: auto;" />'
-            )
+            html_body.append(f'<img class="alignnone wp-image-XXXX" src="{base_url + file_name}" alt="" width="{width}" height="auto" style="max-width: 100%; height: auto;" />')
         
-        # Przypisy i Książka (Wzmocnione wykrywanie)
-        elif l_low.startswith("przypisy:") or l_low.startswith("książka:"):
-            html_body.append(f'<br />\n<b>{l}</b>')
+        # 2. PRZYPISY I KSIĄŻKA (Wzmocnione wykrywanie)
+        elif "przypisy" in l_low or "książka" in l_low:
+            # Dodajemy odstęp i pogrubienie dla całej linii
+            html_body.append(f'<br />\n<b>{l_strip}</b>')
         
-        # Wyimki
-        elif l.startswith(">") or l_low.startswith("wyimek:"):
-            txt = l.lstrip("> ").strip() if l.startswith(">") else l.split(":", 1)[1].strip()
+        # 3. WYIMKI
+        elif l_strip.startswith(">") or l_low.startswith("wyimek:"):
+            txt = l_strip.lstrip("> ").strip() if l_strip.startswith(">") else l_strip.split(":", 1)[1].strip()
             html_body.append(f'<blockquote><span style="font-weight: 400;">"{txt}"</span></blockquote>')
             
-        # Stopka
-        elif "Rubrykę redaguje" in l:
-            html_body.append(f'\n<i><span style="font-weight: 400;">{l}</span></i>')
+        # 4. STOPKA
+        elif "rubrykę redaguje" in l_low:
+            html_body.append(f'\n<i><span style="font-weight: 400;">{l_strip}</span></i>')
             
-        # Zwykły akapit
+        # 5. ZWYKŁY AKAPIT
         else:
-            html_body.append(f'<span style="font-weight: 400;">{l}</span>')
+            html_body.append(f'<span style="font-weight: 400;">{l_strip}</span>')
 
-    final_html = [f'<b>{meta["LEAD"]}</b>'] + html_body + [f'<img class="alignnone wp-image-105887 size-full" src="{URL_BANER}" alt="" width="1080" height="100" />']
+    # Lead (jeśli istnieje)
+    lead_part = f'<b>{meta["LEAD"]}</b>\n\n' if meta["LEAD"] else ""
+    full_html = lead_part + "\n\n".join(html_body) + f'\n\n<img class="alignnone wp-image-105887 size-full" src="{URL_BANER}" alt="" width="1080" height="100" />'
 
     with col_out:
         st.subheader("2. Gotowy kod i SEO")
         st.text_input("Tytuł SEO:", meta['TYTUL'])
         st.text_input("URL (Slug):", meta['SLOWO'])
         st.text_area("Metaopis:", meta['META'], height=80)
-        
         st.divider()
-        st.text_area("Kod HTML (Kopiuj do WP):", "\n\n".join(final_html), height=400)
+        st.text_area("Kod HTML (Kopiuj do WP):", full_html, height=450)
         st.info(f"Autor: **{meta['AUTOR']}**")
-else:
-    with col_out:
-        st.info("Wklej tekst po lewej stronie, aby wygenerować kod.")
