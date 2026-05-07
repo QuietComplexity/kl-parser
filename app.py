@@ -49,9 +49,9 @@ if input_text:
     for l in lines:
         l_u = l.upper()
         
-        # Wykrywanie kluczy technicznych (SEO, Lead itp.)
+        # Wykrywanie kluczy technicznych
         if ":" in l and any(k in l_u for k in ["SEO", "TYTUŁ SEO", "METAOPIS", "TAGI", "URL", "SŁOWO KLUCZOWE", "LEAD"]):
-            collecting_bio = False # Przerwij zbieranie BIO, jeśli pojawi się klucz SEO
+            collecting_bio = False 
             klucz, wartosc = l.split(":", 1)
             k = klucz.upper()
             v = wartosc.strip()
@@ -63,20 +63,18 @@ if input_text:
             elif "URL" in k or "SŁOWO" in k: meta["SLOWO"] = v
             continue
 
-        # Specyficzna obsługa BIO i Autora
         if l_u.startswith("BIO:"):
             meta["AUTOR"] = l.replace("BIO:", "").strip()
             collecting_bio = True
             continue
 
         if collecting_bio:
-            # Zachowaj formatowanie BIO (nowe linie)
             meta["BIO"] += ("\n" + l) if meta["BIO"] else l
             continue
 
-        # Jeśli linia nie jest metadaną ani częścią BIO -> to treść artykułu
+        # Treść artykułu - POMIJAMY linie identyczne z zapisanym LEAD
         if l_u not in ["TEKST:", "==="] and not l_u.startswith("AUTOR:"):
-            # Omiń tylko jeśli linia jest dokładnie taka sama jak wyciągnięty Lead
+            # Radykalne porównanie, aby uniknąć dublowania leada
             if l != meta["LEAD"]:
                 text_content.append(l)
 
@@ -87,15 +85,20 @@ if input_text:
     for l in text_content:
         l_low = l.lower()
         
-        # --- OBRAZKI ---
+        # --- LOGIKA OBRAZKÓW (obsługuje [ilustracja0] jako okładkę) ---
         if "[" in l and "]" in l and not l.startswith("[http"):
             tag_match = re.search(r'\[(.*?)\]', l)
             if tag_match:
                 tag_content = tag_match.group(1).strip()
-                if any(c.isalpha() for c in tag_content):
+                if any(c.isalpha() for c in tag_content) or "0" in tag_content:
                     tag_clean = usun_polskie_znaki(tag_content.lower()).replace(" ", "_")
-                    # Szerokość: okladka 550, reszta 675
-                    w = 550 if "okladka" in tag_clean or any(k in tag_clean for k in ["pion", "v", "sq", "kwadrat"]) else 675
+                    
+                    # Szerokość 550px dla okładki, ilustracji0 i pionów
+                    if any(k in tag_clean for k in ["okladka", "ilustracja0", "pion", "v", "sq", "kwadrat"]):
+                        w = 550
+                    else:
+                        w = 675
+                    
                     f_name = f"{author_code}_{tag_clean}{file_ext}"
                     html_body.append(f'<img class="alignnone wp-image-XXXX" src="{base_url + f_name}" alt="" width="{w}" height="auto" style="max-width: 100%; height: auto;" />')
                     continue
@@ -109,10 +112,11 @@ if input_text:
         elif "rubrykę redaguje" in l_low:
             html_body.append(f'\n<i><span style="font-weight: 400;">{l}</span></i>')
         else:
-            # Zwykły tekst (bez boldowania przypisów)
+            # Standardowy tekst bez boldowania
             html_body.append(f'<span style="font-weight: 400;">{uczyn_linki_klikalnymi(l)}</span>')
 
     # 3. WYNIK FINALNY
+    # Lead boldowany tylko raz na samej górze
     final_lead = f'<b>{meta["LEAD"]}</b>\n\n' if meta["LEAD"] else ""
     full_html = final_lead + "\n\n".join(html_body) + f'\n\n<img class="alignnone wp-image-105887 size-full" src="{URL_BANER}" alt="" width="1080" height="100" />'
 
@@ -126,4 +130,4 @@ if input_text:
         
         st.subheader("👤 Dane Autora")
         st.info(f"Imię i Nazwisko: **{meta['AUTOR']}**")
-        st.text_area("BIO (zachowane formatowanie):", meta['BIO'], height=150)
+        st.text_area("BIO (zachowane entery):", meta['BIO'], height=150)
