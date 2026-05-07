@@ -38,7 +38,6 @@ with col_in:
     input_text = st.text_area("Wklej treść:", height=550, key="main_input")
 
 if input_text:
-    # Rozbijamy na linie i czyścimy białe znaki
     lines = [l.strip() for l in input_text.splitlines() if l.strip()]
     
     meta = {"LEAD": "", "TYTUL": "", "SLOWO": "", "META": "", "TAGI": "", "AUTOR": "", "BIO": ""}
@@ -50,13 +49,9 @@ if input_text:
     for l in lines:
         l_u = l.upper()
         
-        # Wykrywanie pól technicznych
-        if ":" in l and any(k in l_u for k in ["SEO", "TYTUŁ", "META", "TAGI", "URL", "SŁOWO", "LEAD", "AUTOR"]):
-            # Sprawdzamy czy to nie jest BIO w trakcie zbierania
-            if collecting_bio and not any(k in l_u for k in ["SEO", "META", "TAGI", "URL", "SŁOWO", "LEAD"]):
-                meta["BIO"] += " " + l
-                continue
-                
+        # Wykrywanie kluczy technicznych (SEO, Lead itp.)
+        if ":" in l and any(k in l_u for k in ["SEO", "TYTUŁ SEO", "METAOPIS", "TAGI", "URL", "SŁOWO KLUCZOWE", "LEAD"]):
+            collecting_bio = False # Przerwij zbieranie BIO, jeśli pojawi się klucz SEO
             klucz, wartosc = l.split(":", 1)
             k = klucz.upper()
             v = wartosc.strip()
@@ -66,22 +61,22 @@ if input_text:
             elif "META" in k: meta["META"] = v
             elif "TAGI" in k: meta["TAGI"] = v
             elif "URL" in k or "SŁOWO" in k: meta["SLOWO"] = v
-            elif "AUTOR" in k: meta["AUTOR"] = v
             continue
 
-        # Specyficzna linia BIO:
+        # Specyficzna obsługa BIO i Autora
         if l_u.startswith("BIO:"):
             meta["AUTOR"] = l.replace("BIO:", "").strip()
             collecting_bio = True
             continue
 
         if collecting_bio:
-            meta["BIO"] += (" " + l) if meta["BIO"] else l
+            # Zachowaj formatowanie BIO (nowe linie)
+            meta["BIO"] += ("\n" + l) if meta["BIO"] else l
             continue
 
-        # Jeśli linia nie jest metadaną ani BIO -> dodaj do treści (pomijając tagi techniczne)
-        if l_u not in ["TEKST:", "==="]:
-            # POMIŃ tylko jeśli linia jest kropka w kropkę identyczna z LEAD
+        # Jeśli linia nie jest metadaną ani częścią BIO -> to treść artykułu
+        if l_u not in ["TEKST:", "==="] and not l_u.startswith("AUTOR:"):
+            # Omiń tylko jeśli linia jest dokładnie taka sama jak wyciągnięty Lead
             if l != meta["LEAD"]:
                 text_content.append(l)
 
@@ -114,10 +109,10 @@ if input_text:
         elif "rubrykę redaguje" in l_low:
             html_body.append(f'\n<i><span style="font-weight: 400;">{l}</span></i>')
         else:
-            # Każdy inny tekst (bez bolda)
+            # Zwykły tekst (bez boldowania przypisów)
             html_body.append(f'<span style="font-weight: 400;">{uczyn_linki_klikalnymi(l)}</span>')
 
-    # 3. SKŁADANIE W CAŁOŚĆ
+    # 3. WYNIK FINALNY
     final_lead = f'<b>{meta["LEAD"]}</b>\n\n' if meta["LEAD"] else ""
     full_html = final_lead + "\n\n".join(html_body) + f'\n\n<img class="alignnone wp-image-105887 size-full" src="{URL_BANER}" alt="" width="1080" height="100" />'
 
@@ -131,4 +126,4 @@ if input_text:
         
         st.subheader("👤 Dane Autora")
         st.info(f"Imię i Nazwisko: **{meta['AUTOR']}**")
-        st.text_area("BIO (do profilu):", meta['BIO'], height=100)
+        st.text_area("BIO (zachowane formatowanie):", meta['BIO'], height=150)
