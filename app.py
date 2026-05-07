@@ -38,72 +38,74 @@ with col_in:
     input_text = st.text_area("Wklej treść:", height=550, key="main_input")
 
 if input_text:
-    # 1. Wstępne czyszczenie i podział na linie
-    raw_lines = [l.strip() for l in input_text.splitlines() if l.strip()]
+    # Rozbijamy na linie i czyścimy białe znaki
+    lines = [l.strip() for l in input_text.splitlines() if l.strip()]
     
     meta = {"LEAD": "", "TYTUL": "", "SLOWO": "", "META": "", "TAGI": "", "AUTOR": "", "BIO": ""}
-    content_lines = []
+    text_content = []
     
-    # 2. PARSOWANIE - Wyciągamy metadane i BIO, reszta to treść
     collecting_bio = False
     
-    for l in raw_lines:
+    # 1. PARSOWANIE (Metadane i BIO)
+    for l in lines:
         l_u = l.upper()
         
-        # Wykrywanie kluczy (SEO, Lead itp.)
-        if ":" in l:
-            klucz = l.split(":", 1)[0].upper()
-            wartosc = l.split(":", 1)[1].strip()
+        # Wykrywanie pól technicznych
+        if ":" in l and any(k in l_u for k in ["SEO", "TYTUŁ", "META", "TAGI", "URL", "SŁOWO", "LEAD", "AUTOR"]):
+            # Sprawdzamy czy to nie jest BIO w trakcie zbierania
+            if collecting_bio and not any(k in l_u for k in ["SEO", "META", "TAGI", "URL", "SŁOWO", "LEAD"]):
+                meta["BIO"] += " " + l
+                continue
+                
+            klucz, wartosc = l.split(":", 1)
+            k = klucz.upper()
+            v = wartosc.strip()
             
-            if "LEAD" in klucz: meta["LEAD"] = wartosc; continue
-            if "SEO" in klucz or "TYTUŁ" in klucz: meta["TYTUL"] = wartosc; continue
-            if "META" in klucz: meta["META"] = wartosc; continue
-            if "TAGI" in klucz: meta["TAGI"] = wartosc; continue
-            if "URL" in klucz or "SŁOWO" in klucz: meta["SLOWO"] = wartosc; continue
-            if "AUTOR" in klucz and not collecting_bio: meta["AUTOR"] = wartosc; continue
-            
-        # Specyficzna obsługa BIO
+            if "LEAD" in k: meta["LEAD"] = v
+            elif "SEO" in k or "TYTUŁ" in k: meta["TYTUL"] = v
+            elif "META" in k: meta["META"] = v
+            elif "TAGI" in k: meta["TAGI"] = v
+            elif "URL" in k or "SŁOWO" in k: meta["SLOWO"] = v
+            elif "AUTOR" in k: meta["AUTOR"] = v
+            continue
+
+        # Specyficzna linia BIO:
         if l_u.startswith("BIO:"):
             meta["AUTOR"] = l.replace("BIO:", "").strip()
             collecting_bio = True
             continue
-            
+
         if collecting_bio:
-            # BIO zbieramy do momentu napotkania innego pola technicznego
-            if ":" in l and any(k in l_u for k in ["SEO", "URL", "TAGI", "META"]):
-                collecting_bio = False
-            else:
-                meta["BIO"] += (" " + l) if meta["BIO"] else l
-                continue
+            meta["BIO"] += (" " + l) if meta["BIO"] else l
+            continue
 
-        # Jeśli to nie metadane ani BIO -> to jest treść artykułu
+        # Jeśli linia nie jest metadaną ani BIO -> dodaj do treści (pomijając tagi techniczne)
         if l_u not in ["TEKST:", "==="]:
-            # DODATKOWY FILTR: Nie dodawaj linii, jeśli jest identyczna z Lead'em (unikamy 2x Lead)
+            # POMIŃ tylko jeśli linia jest kropka w kropkę identyczna z LEAD
             if l != meta["LEAD"]:
-                content_lines.append(l)
+                text_content.append(l)
 
-    # 3. GENEROWANIE HTML
+    # 2. BUDOWANIE HTML
     html_body = []
     base_url = f"https://kulturaliberalna.pl/wp-content/uploads/{year}/{month}/"
 
-    for l in content_lines:
+    for l in text_content:
         l_low = l.lower()
         
-        # --- LOGIKA OBRAZKÓW ---
+        # --- OBRAZKI ---
         if "[" in l and "]" in l and not l.startswith("[http"):
             tag_match = re.search(r'\[(.*?)\]', l)
             if tag_match:
                 tag_content = tag_match.group(1).strip()
-                # Jeśli to nie jest sam numer przypisu
-                if not tag_content.isdigit():
+                if any(c.isalpha() for c in tag_content):
                     tag_clean = usun_polskie_znaki(tag_content.lower()).replace(" ", "_")
                     # Szerokość: okladka 550, reszta 675
                     w = 550 if "okladka" in tag_clean or any(k in tag_clean for k in ["pion", "v", "sq", "kwadrat"]) else 675
                     f_name = f"{author_code}_{tag_clean}{file_ext}"
                     html_body.append(f'<img class="alignnone wp-image-XXXX" src="{base_url + f_name}" alt="" width="{w}" height="auto" style="max-width: 100%; height: auto;" />')
-                    continue # Przejdź do następnej linii, nie dodawaj tego jako tekst
+                    continue
 
-        # --- LOGIKA TEKSTU ---
+        # --- TEKST ---
         if l_low.startswith("przypisy") or l_low.startswith("książka"):
             html_body.append(f'<br />\n<b>{l}</b>')
         elif l.startswith(">") or l_low.startswith("wyimek:"):
@@ -112,10 +114,10 @@ if input_text:
         elif "rubrykę redaguje" in l_low:
             html_body.append(f'\n<i><span style="font-weight: 400;">{l}</span></i>')
         else:
-            # Zwykły akapit (w tym przypisy [1]) - BEZ boldowania
+            # Każdy inny tekst (bez bolda)
             html_body.append(f'<span style="font-weight: 400;">{uczyn_linki_klikalnymi(l)}</span>')
 
-    # Składanie całości
+    # 3. SKŁADANIE W CAŁOŚĆ
     final_lead = f'<b>{meta["LEAD"]}</b>\n\n' if meta["LEAD"] else ""
     full_html = final_lead + "\n\n".join(html_body) + f'\n\n<img class="alignnone wp-image-105887 size-full" src="{URL_BANER}" alt="" width="1080" height="100" />'
 
@@ -128,5 +130,5 @@ if input_text:
         st.text_area("Kod HTML artykułu:", full_html, height=450)
         
         st.subheader("👤 Dane Autora")
-        st.info(f"Autor: **{meta['AUTOR']}**")
-        st.text_area("BIO do profilu:", meta['BIO'], height=100)
+        st.info(f"Imię i Nazwisko: **{meta['AUTOR']}**")
+        st.text_area("BIO (do profilu):", meta['BIO'], height=100)
