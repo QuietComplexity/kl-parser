@@ -8,7 +8,6 @@ def usun_polskie_znaki(tekst):
     return tekst.translate(polskie_znaki)
 
 def uczyn_linki_klikalnymi(tekst):
-    """Zamienia adresy URL na linki HTML, ignorując nawiasy kwadratowe wokół nich."""
     wzor_url = r'(https?://[^\s\]]+)'
     return re.sub(wzor_url, r'<a href="\1" target="_blank">\1</a>', tekst)
 
@@ -47,20 +46,31 @@ if input_text:
     raw_lines = [l.strip() for l in lines if l.strip()]
     
     for i, l in enumerate(raw_lines):
-        if skip_next: skip_next = False; continue
+        if skip_next:
+            skip_next = False
+            continue
         l_u = l.upper()
+        # Wyłapywanie metadanych
         if ":" in l and any(k in l_u for k in ["SEO:", "TYTUŁ SEO:", "METAOPIS:", "TAGI:", "URL:", "SŁOWO KLUCZ:", "LEAD:", "AUTOR:"]):
             klucz, wartosc = l.split(":", 1)
             val = wartosc.strip()
             if "AUTOR" in l_u:
                 meta["AUTOR"] = val
+                # Jeśli następna linia nie ma dwukropka, uznajemy ją za BIO
                 if i+1 < len(raw_lines) and ":" not in raw_lines[i+1]:
-                    meta["BIO"] = raw_lines[i+1]; skip_next = True
+                    meta["BIO"] = raw_lines[i+1]
+                    skip_next = True
             else:
                 key_map = {"SEO": "TYTUL", "TYTUŁ": "TYTUL", "META": "META", "TAGI": "TAGI", "URL": "SLOWO", "SŁOWO": "SLOWO", "LEAD": "LEAD"}
                 for k_word, target in key_map.items():
                     if k_word in l_u: meta[target] = val
             continue
+        
+        # Jeśli linia zaczyna się od BIO: (dosłownie), też ją wycinamy
+        if l_u.startswith("BIO:"):
+            meta["BIO"] = l.split(":", 1)[1].strip()
+            continue
+            
         if l_u == "TEKST:" or l.startswith("==="): continue
         content_lines.append(l)
 
@@ -71,37 +81,36 @@ if input_text:
         l_strip = l.strip()
         l_low = l_strip.lower()
         
-        # 1. SPRAWDZANIE CZY TO OBRAZEK (Tylko jeśli to nie jest przypis [1] ani link [http])
-        is_image_tag = False
+        # --- LOGIKA OBRAZKÓW (Bardziej precyzyjna) ---
+        is_image = False
+        tag_content = ""
         if "[" in l_strip and "]" in l_strip:
-            # Wyciągamy zawartość nawiasu
-            potential_tag = re.search(r'\[(.*?)\]', l_strip).group(1)
-            # Jeśli to NIE jest cyfra i NIE zaczyna się od http, to uznajemy, że to obrazek
-            if not potential_tag.isdigit() and not potential_tag.startswith("http"):
-                is_image_tag = True
+            match = re.search(r'\[(.*?)\]', l_strip)
+            if match:
+                tag_content = match.group(1).strip()
+                # OBRAZEK: jeśli nie jest samym numerem i nie zaczyna się od http
+                if not tag_content.isdigit() and not tag_content.startswith("http"):
+                    is_image = True
 
-        if is_image_tag:
-            tag_raw = re.search(r'\[(.*?)\]', l_strip).group(1).lower()
-            width = 550 if any(k in tag_raw for k in ["pion", "v", "sq", "kwadrat"]) else 675
-            tag_clean = usun_polskie_znaki(tag_raw).replace(" ", "_")
+        if is_image:
+            width = 550 if any(k in tag_content.lower() for k in ["pion", "v", "sq", "kwadrat"]) else 675
+            tag_clean = usun_polskie_znaki(tag_content.lower()).replace(" ", "_")
             file_name = f"{author_code}_{tag_clean}{file_ext}"
             html_body.append(f'<img class="alignnone wp-image-XXXX" src="{base_url + file_name}" alt="" width="{width}" height="auto" style="max-width: 100%; height: auto;" />')
         
-        # 2. NAGŁÓWKI (Przypisy / Książka)
+        # --- RESZTA TEKSTU ---
         elif l_low.startswith("przypisy") or l_low.startswith("książka"):
             html_body.append(f'<br />\n<b>{l_strip}</b>')
-        
-        # 3. WYIMKI
         elif l_strip.startswith(">") or l_low.startswith("wyimek:"):
             txt = l_strip.lstrip("> ").strip() if l_strip.startswith(">") else l_strip.split(":", 1)[1].strip()
-            txt = uczyn_linki_klikalnymi(txt)
-            html_body.append(f'<blockquote><span style="font-weight: 400;">"{txt}"</span></blockquote>')
-            
-        # 4. ZWYKŁY TEKST (W tym przypisy [1] i [2] z linkami)
+            html_body.append(f'<blockquote><span style="font-weight: 400;">"{uczyn_linki_klikalnymi(txt)}"</span></blockquote>')
+        elif "rubrykę redaguje" in l_low:
+            html_body.append(f'\n<i><span style="font-weight: 400;">{l_strip}</span></i>')
         else:
-            tekst_finalny = uczyn_linki_klikalnymi(l_strip)
-            html_body.append(f'<span style="font-weight: 400;">{tekst_finalny}</span>')
+            # Tutaj lądują przypisy [1], [2] i zwykły tekst - z klikalnymi linkami
+            html_body.append(f'<span style="font-weight: 400;">{uczyn_linki_klikalnymi(l_strip)}</span>')
 
+    # Składanie finalnego kodu (bez BIO i Autora)
     full_html = (f'<b>{meta["LEAD"]}</b>\n\n' if meta["LEAD"] else "") + "\n\n".join(html_body) + f'\n\n<img class="alignnone wp-image-105887 size-full" src="{URL_BANER}" alt="" width="1080" height="100" />'
 
     with col_out:
@@ -110,5 +119,9 @@ if input_text:
         st.text_input("URL (Slug):", meta['SLOWO'])
         st.text_area("Metaopis:", meta['META'], height=80)
         st.divider()
-        st.text_area("Kod HTML:", full_html, height=450)
-        st.info(f"Autor: **{meta['AUTOR']}**")
+        st.text_area("Kod HTML artykułu:", full_html, height=350)
+        
+        # --- NOWA SEKCJA NA BIO I AUTORA ---
+        st.subheader("👤 Dane Autora (do stopki WP)")
+        st.text_input("Imię i Nazwisko:", meta['AUTOR'])
+        st.text_area("BIO autora:", meta['BIO'], height=100)
