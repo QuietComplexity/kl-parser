@@ -18,7 +18,7 @@ if st.sidebar.button("🗑️ Wyczyść wszystko"):
 
 st.title("🔗 Panel Edytorski KL Dzieciom")
 
-# --- SIDEBAR: USTAWIENIA ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("📂 Parametry WordPress")
     now = datetime.now()
@@ -47,6 +47,7 @@ if input_text:
     
     raw_lines = [l.strip() for l in lines if l.strip()]
     
+    # --- PARSOWANIE METADANYCH ---
     for i, l in enumerate(raw_lines):
         if skip_next:
             skip_next = False
@@ -68,6 +69,7 @@ if input_text:
         if l_u == "TEKST:" or l.startswith("==="): continue
         content_lines.append(l)
 
+    # --- GENEROWANIE HTML ---
     html_body = []
     base_url = f"https://kulturaliberalna.pl/wp-content/uploads/{year}/{month}/"
 
@@ -83,17 +85,17 @@ if input_text:
             file_name = f"{author_code}_{tag_clean}{file_ext}"
             html_body.append(f'<img class="alignnone wp-image-XXXX" src="{base_url + file_name}" alt="" width="{width}" height="auto" style="max-width: 100%; height: auto;" />')
         
-        # 2. PRZYPISY I KSIĄŻKA (Wzmocnione wykrywanie)
-        elif "przypisy" in l_low or "książka" in l_low:
-            # Dodajemy odstęp i pogrubienie dla całej linii
+        # 2. PRZYPISY I KSIĄŻKA (Super-czułe wykrywanie)
+        elif "przypis" in l_low or "książka" in l_low or "ksiązka" in l_low:
+            # Dodaje pustą linię i pogrubienie
             html_body.append(f'<br />\n<b>{l_strip}</b>')
         
-        # 3. WYIMKI
+        # 3. WYIMKI / CYTATY
         elif l_strip.startswith(">") or l_low.startswith("wyimek:"):
             txt = l_strip.lstrip("> ").strip() if l_strip.startswith(">") else l_strip.split(":", 1)[1].strip()
             html_body.append(f'<blockquote><span style="font-weight: 400;">"{txt}"</span></blockquote>')
             
-        # 4. STOPKA
+        # 4. STOPKA REDAKCYJNA
         elif "rubrykę redaguje" in l_low:
             html_body.append(f'\n<i><span style="font-weight: 400;">{l_strip}</span></i>')
             
@@ -101,7 +103,7 @@ if input_text:
         else:
             html_body.append(f'<span style="font-weight: 400;">{l_strip}</span>')
 
-    # Lead (jeśli istnieje)
+    # Składanie kodu w całość
     lead_part = f'<b>{meta["LEAD"]}</b>\n\n' if meta["LEAD"] else ""
     full_html = lead_part + "\n\n".join(html_body) + f'\n\n<img class="alignnone wp-image-105887 size-full" src="{URL_BANER}" alt="" width="1080" height="100" />'
 
