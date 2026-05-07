@@ -12,7 +12,6 @@ URL_BANER = "https://kulturaliberalna.pl/wp-content/uploads/2025/06/Baner-strona
 
 st.set_page_config(page_title="KL Generator", page_icon="🔗", layout="wide")
 
-# --- PRZYCISK RESETU ---
 if st.sidebar.button("🗑️ Wyczyść wszystko"):
     st.rerun()
 
@@ -24,20 +23,16 @@ with st.sidebar:
     now = datetime.now()
     year = st.text_input("Rok (YYYY):", value=str(now.year))
     month = st.text_input("Miesiąc (MM):", value=now.strftime("%m"))
-    
     st.header("🖼️ Ustawienia Zdjęć")
     file_ext = st.selectbox("Format plików:", [".jpg", ".jpeg", ".png"], index=0)
     author_code = st.text_input("Kod autora (np. rybak):", value="").lower().strip()
-    
-    st.divider()
-    st.info("Szerokość obrazków:\n- Poziome: 675px\n- Pion/Kwadrat: 550px")
 
 # --- GŁÓWNE OKNO ---
 col_in, col_out = st.columns(2)
 
 with col_in:
     st.subheader("1. Wklej tekst")
-    input_text = st.text_area("Wklej treść razem z metadanymi:", height=550, key="main_input")
+    input_text = st.text_area("Wklej treść:", height=550, key="main_input")
 
 if input_text:
     lines = input_text.splitlines()
@@ -47,7 +42,6 @@ if input_text:
     
     raw_lines = [l.strip() for l in lines if l.strip()]
     
-    # --- PARSOWANIE METADANYCH ---
     for i, l in enumerate(raw_lines):
         if skip_next:
             skip_next = False
@@ -69,7 +63,6 @@ if input_text:
         if l_u == "TEKST:" or l.startswith("==="): continue
         content_lines.append(l)
 
-    # --- GENEROWANIE HTML ---
     html_body = []
     base_url = f"https://kulturaliberalna.pl/wp-content/uploads/{year}/{month}/"
 
@@ -77,33 +70,35 @@ if input_text:
         l_strip = l.strip()
         l_low = l_strip.lower()
         
-        # 1. OBRAZKI
-        if "[" in l_strip and "]" in l_strip:
-            tag_raw = re.search(r'\[(.*?)\]', l_strip).group(1).lower()
-            width = 550 if any(k in tag_raw for k in ["pion", "v", "sq", "kwadrat"]) else 675
-            tag_clean = usun_polskie_znaki(tag_raw).replace(" ", "_")
-            file_name = f"{author_code}_{tag_clean}{file_ext}"
-            html_body.append(f'<img class="alignnone wp-image-XXXX" src="{base_url + file_name}" alt="" width="{width}" height="auto" style="max-width: 100%; height: auto;" />')
+        # 1. PRZYPISY NUMEROWANE (np. [1]) - musimy to sprawdzić ZANIM sprawdzimy obrazki
+        if re.match(r'^\[\d+\]', l_strip):
+            html_body.append(f'<span style="font-weight: 400;">{l_strip}</span>')
+
+        # 2. OBRAZKI (Tylko jeśli w środku nie ma samej cyfry)
+        elif "[" in l_strip and "]" in l_strip and not re.search(r'^\[\d+\]$', l_strip):
+            tag_match = re.search(r'\[(.*?)\]', l_strip)
+            if tag_match:
+                tag_raw = tag_match.group(1).lower()
+                width = 550 if any(k in tag_raw for k in ["pion", "v", "sq", "kwadrat"]) else 675
+                tag_clean = usun_polskie_znaki(tag_raw).replace(" ", "_")
+                file_name = f"{author_code}_{tag_clean}{file_ext}"
+                html_body.append(f'<img class="alignnone wp-image-XXXX" src="{base_url + file_name}" alt="" width="{width}" height="auto" style="max-width: 100%; height: auto;" />')
         
-        # 2. PRZYPISY I KSIĄŻKA (Super-czułe wykrywanie)
-        elif "przypis" in l_low or "książka" in l_low or "ksiązka" in l_low:
-            # Dodaje pustą linię i pogrubienie
+        # 3. NAGŁÓWKI SEKCJI (Przypisy / Książka)
+        elif l_low.startswith("przypisy") or l_low.startswith("książka"):
             html_body.append(f'<br />\n<b>{l_strip}</b>')
         
-        # 3. WYIMKI / CYTATY
+        # 4. WYIMKI
         elif l_strip.startswith(">") or l_low.startswith("wyimek:"):
             txt = l_strip.lstrip("> ").strip() if l_strip.startswith(">") else l_strip.split(":", 1)[1].strip()
             html_body.append(f'<blockquote><span style="font-weight: 400;">"{txt}"</span></blockquote>')
             
-        # 4. STOPKA REDAKCYJNA
+        # 5. STOPKA / RESZTA
         elif "rubrykę redaguje" in l_low:
             html_body.append(f'\n<i><span style="font-weight: 400;">{l_strip}</span></i>')
-            
-        # 5. ZWYKŁY AKAPIT
         else:
             html_body.append(f'<span style="font-weight: 400;">{l_strip}</span>')
 
-    # Składanie kodu w całość
     lead_part = f'<b>{meta["LEAD"]}</b>\n\n' if meta["LEAD"] else ""
     full_html = lead_part + "\n\n".join(html_body) + f'\n\n<img class="alignnone wp-image-105887 size-full" src="{URL_BANER}" alt="" width="1080" height="100" />'
 
@@ -113,5 +108,5 @@ if input_text:
         st.text_input("URL (Slug):", meta['SLOWO'])
         st.text_area("Metaopis:", meta['META'], height=80)
         st.divider()
-        st.text_area("Kod HTML (Kopiuj do WP):", full_html, height=450)
+        st.text_area("Kod HTML:", full_html, height=450)
         st.info(f"Autor: **{meta['AUTOR']}**")
