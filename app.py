@@ -38,45 +38,47 @@ with col_in:
     input_text = st.text_area("Wklej treść:", height=550, key="main_input")
 
 if input_text:
-    lines = input_text.splitlines()
+    lines = [l.strip() for l in input_text.splitlines() if l.strip()]
     meta = {"LEAD": "", "TYTUL": "", "SLOWO": "", "META": "", "TAGI": "", "AUTOR": "", "BIO": ""}
     content_lines = []
     
-    # --- PARSOWANIE ---
+    # --- PARSOWANIE METADANYCH I BIO ---
     current_bio_collecting = False
     
     for l in lines:
-        l_s = l.strip()
-        if not l_s: continue
-        l_u = l_s.upper()
+        l_u = l.upper()
         
-        # 1. WYKRYWANIE BIO
+        # BIO
         if l_u.startswith("BIO:"):
-            meta["AUTOR"] = l_s.replace("BIO:", "").strip()
+            meta["AUTOR"] = l.replace("BIO:", "").strip()
             current_bio_collecting = True
             continue
         
         if current_bio_collecting:
-            if ":" in l_s and any(k in l_u for k in ["SEO:", "TYTUŁ SEO:", "METAOPIS:", "TAGI:", "URL:", "SŁOWO KLUCZ:", "LEAD:"]):
+            if ":" in l and any(k in l_u for k in ["SEO:", "METAOPIS:", "TAGI:", "URL:", "SŁOWO:", "LEAD:"]):
                 current_bio_collecting = False
             else:
-                meta["BIO"] += (" " + l_s) if meta["BIO"] else l_s
+                meta["BIO"] += (" " + l) if meta["BIO"] else l
                 continue
 
-        # 2. INNE METADANE (w tym LEAD)
-        if ":" in l_s and any(k in l_u for k in ["SEO:", "TYTUŁ SEO:", "METAOPIS:", "TAGI:", "URL:", "SŁOWO KLUCZ:", "LEAD:", "AUTOR:"]):
-            klucz, wartosc = l_s.split(":", 1)
+        # Inne klucze (w tym SŁOWO KLUCZOWE)
+        if ":" in l and any(k in l_u for k in ["SEO", "META", "TAGI", "URL", "SŁOWO", "LEAD", "AUTOR"]):
+            klucz, wartosc = l.split(":", 1)
             val = wartosc.strip()
-            key_map = {"SEO": "TYTUL", "TYTUŁ": "TYTUL", "META": "META", "TAGI": "TAGI", "URL": "SLOWO", "SŁOWO": "SLOWO", "LEAD": "LEAD", "AUTOR": "AUTOR"}
-            for k_word, target in key_map.items():
-                if k_word in l_u: meta[target] = val
+            k_upper = klucz.upper()
+            if "SEO" in k_upper or "TYTUŁ" in k_upper: meta["TYTUL"] = val
+            elif "META" in k_upper: meta["META"] = val
+            elif "TAGI" in k_upper: meta["TAGI"] = val
+            elif "URL" in k_upper or "SŁOWO" in k_upper: meta["SLOWO"] = val
+            elif "LEAD" in k_upper: meta["LEAD"] = val
+            elif "AUTOR" in k_upper: meta["AUTOR"] = val
             continue
 
-        if l_u == "TEKST:" or l_s.startswith("==="): continue
+        if l_u == "TEKST:" or l.startswith("==="): continue
         
-        # Dodajemy do treści tylko jeśli to nie jest powtórzony Lead wyciągnięty z metadanych
-        if l_s != meta["LEAD"]:
-            content_lines.append(l_s)
+        # Dodajemy do treści tylko to, co nie jest Lead'em ani Słowem Kluczowym
+        if l != meta["LEAD"] and l != meta["SLOWO"]:
+            content_lines.append(l)
 
     html_body = []
     base_url = f"https://kulturaliberalna.pl/wp-content/uploads/{year}/{month}/"
@@ -90,10 +92,16 @@ if input_text:
             tag_match = re.search(r'\[(.*?)\]', l)
             if tag_match:
                 tag_content = tag_match.group(1).strip()
+                # Jeśli tag zawiera litery i nie jest linkiem
                 if any(c.isalpha() for c in tag_content) and not tag_content.startswith("http"):
                     is_image = True
                     tag_clean = usun_polskie_znaki(tag_content.lower()).replace(" ", "_")
-                    width = 550 if any(k in tag_clean for k in ["pion", "v", "sq", "kwadrat"]) else 675
+                    # Rozmiar: okladka zawsze 550, reszta wg słów kluczowych
+                    if "okladka" in tag_clean or any(k in tag_clean for k in ["pion", "v", "sq", "kwadrat"]):
+                        width = 550
+                    else:
+                        width = 675
+                    
                     file_name = f"{author_code}_{tag_clean}{file_ext}"
                     html_body.append(f'<img class="alignnone wp-image-XXXX" src="{base_url + file_name}" alt="" width="{width}" height="auto" style="max-width: 100%; height: auto;" />')
 
@@ -108,7 +116,7 @@ if input_text:
             else:
                 html_body.append(f'<span style="font-weight: 400;">{uczyn_linki_klikalnymi(l)}</span>')
 
-    # Składanie: Lead jest wyboldowany TYLKO jeśli został jawnie podany w metadanych
+    # Składanie finalnego kodu
     final_lead = f'<b>{meta["LEAD"]}</b>\n\n' if meta["LEAD"] else ""
     full_html = final_lead + "\n\n".join(html_body) + f'\n\n<img class="alignnone wp-image-105887 size-full" src="{URL_BANER}" alt="" width="1080" height="100" />'
 
