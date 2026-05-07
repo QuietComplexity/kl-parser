@@ -50,34 +50,33 @@ if input_text:
         if not l_s: continue
         l_u = l_s.upper()
         
-        # Wykrywanie BIO i zbieranie wszystkiego po nim
+        # 1. WYKRYWANIE BIO
         if l_u.startswith("BIO:"):
             meta["AUTOR"] = l_s.replace("BIO:", "").strip()
             current_bio_collecting = True
             continue
         
-        # Jeśli jesteśmy w trybie zbierania BIO i linia nie jest innym kluczem SEO
         if current_bio_collecting:
-            if ":" in l_s and any(k in l_u for k in ["SEO:", "METAOPIS:", "TAGI:", "URL:", "SŁOWO KLUCZ:", "LEAD:"]):
+            if ":" in l_s and any(k in l_u for k in ["SEO:", "TYTUŁ SEO:", "METAOPIS:", "TAGI:", "URL:", "SŁOWO KLUCZ:", "LEAD:"]):
                 current_bio_collecting = False
             else:
                 meta["BIO"] += (" " + l_s) if meta["BIO"] else l_s
                 continue
 
-        # Inne metadane
-        if ":" in l_s and any(k in l_u for k in ["SEO:", "METAOPIS:", "TAGI:", "URL:", "SŁOWO KLUCZ:", "LEAD:"]):
+        # 2. INNE METADANE (w tym LEAD)
+        if ":" in l_s and any(k in l_u for k in ["SEO:", "TYTUŁ SEO:", "METAOPIS:", "TAGI:", "URL:", "SŁOWO KLUCZ:", "LEAD:", "AUTOR:"]):
             klucz, wartosc = l_s.split(":", 1)
             val = wartosc.strip()
-            key_map = {"SEO": "TYTUL", "TYTUŁ": "TYTUL", "META": "META", "TAGI": "TAGI", "URL": "SLOWO", "SŁOWO": "SLOWO", "LEAD": "LEAD"}
+            key_map = {"SEO": "TYTUL", "TYTUŁ": "TYTUL", "META": "META", "TAGI": "TAGI", "URL": "SLOWO", "SŁOWO": "SLOWO", "LEAD": "LEAD", "AUTOR": "AUTOR"}
             for k_word, target in key_map.items():
                 if k_word in l_u: meta[target] = val
             continue
 
-        # Pomijanie znaczników technicznych
         if l_u == "TEKST:" or l_s.startswith("==="): continue
         
-        # Jeśli nie jest metadanymi ani BIO, trafia do treści artykułu
-        content_lines.append(l_s)
+        # Dodajemy do treści tylko jeśli to nie jest powtórzony Lead wyciągnięty z metadanych
+        if l_s != meta["LEAD"]:
+            content_lines.append(l_s)
 
     html_body = []
     base_url = f"https://kulturaliberalna.pl/wp-content/uploads/{year}/{month}/"
@@ -85,36 +84,33 @@ if input_text:
     for l in content_lines:
         l_low = l.lower()
         
-        # 1. OBRAZKI (Rygorystyczne: musi być tekst w [], nie cyfra, nie http)
+        # --- LOGIKA OBRAZKÓW ---
         is_image = False
         if "[" in l and "]" in l:
             tag_match = re.search(r'\[(.*?)\]', l)
             if tag_match:
                 tag_content = tag_match.group(1).strip()
-                if not tag_content.isdigit() and not tag_content.startswith("http"):
+                if any(c.isalpha() for c in tag_content) and not tag_content.startswith("http"):
                     is_image = True
-                    tag_raw = tag_content.lower()
-                    width = 550 if any(k in tag_raw for k in ["pion", "v", "sq", "kwadrat"]) else 675
-                    tag_clean = usun_polskie_znaki(tag_raw).replace(" ", "_")
+                    tag_clean = usun_polskie_znaki(tag_content.lower()).replace(" ", "_")
+                    width = 550 if any(k in tag_clean for k in ["pion", "v", "sq", "kwadrat"]) else 675
                     file_name = f"{author_code}_{tag_clean}{file_ext}"
                     html_body.append(f'<img class="alignnone wp-image-XXXX" src="{base_url + file_name}" alt="" width="{width}" height="auto" style="max-width: 100%; height: auto;" />')
 
         if not is_image:
-            # 2. NAGŁÓWKI SEKCJI
             if l_low.startswith("przypisy") or l_low.startswith("książka"):
                 html_body.append(f'<br />\n<b>{l}</b>')
-            # 3. WYIMKI
             elif l.startswith(">") or l_low.startswith("wyimek:"):
                 txt = l.lstrip("> ").strip() if l.startswith(">") else l.split(":", 1)[1].strip()
                 html_body.append(f'<blockquote><span style="font-weight: 400;">"{uczyn_linki_klikalnymi(txt)}"</span></blockquote>')
-            # 4. STOPKA
             elif "rubrykę redaguje" in l_low:
                 html_body.append(f'\n<i><span style="font-weight: 400;">{l}</span></i>')
-            # 5. ZWYKŁY TEKST I PRZYPISY NUMEROWANE
             else:
                 html_body.append(f'<span style="font-weight: 400;">{uczyn_linki_klikalnymi(l)}</span>')
 
-    full_html = (f'<b>{meta["LEAD"]}</b>\n\n' if meta["LEAD"] else "") + "\n\n".join(html_body) + f'\n\n<img class="alignnone wp-image-105887 size-full" src="{URL_BANER}" alt="" width="1080" height="100" />'
+    # Składanie: Lead jest wyboldowany TYLKO jeśli został jawnie podany w metadanych
+    final_lead = f'<b>{meta["LEAD"]}</b>\n\n' if meta["LEAD"] else ""
+    full_html = final_lead + "\n\n".join(html_body) + f'\n\n<img class="alignnone wp-image-105887 size-full" src="{URL_BANER}" alt="" width="1080" height="100" />'
 
     with col_out:
         st.subheader("2. Gotowy kod i SEO")
@@ -122,8 +118,8 @@ if input_text:
         st.text_input("URL (Slug):", meta['SLOWO'])
         st.text_area("Metaopis:", meta['META'], height=80)
         st.divider()
-        st.text_area("Kod HTML artykułu (BIO wycięte):", full_html, height=350)
+        st.text_area("Kod HTML artykułu:", full_html, height=400)
         
         st.subheader("👤 Dane Autora")
         st.text_input("Imię i Nazwisko:", meta['AUTOR'])
-        st.text_area("BIO (do wklejenia w profil):", meta['BIO'], height=100)
+        st.text_area("BIO (do profilu):", meta['BIO'], height=100)
